@@ -1,0 +1,16 @@
+plugins {
+    id 'io.franzbecker.gradle-lombok' version '1.10'
+    id 'java'
+    id 'idea'
+    id 'application'
+}
+group 'me.falconpenny'
+version '1.0-SNAPSHOT'
+
+mainClassName = 'me.falconpenny.portscanner'
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+repositories {
+    jcenter()
+}
