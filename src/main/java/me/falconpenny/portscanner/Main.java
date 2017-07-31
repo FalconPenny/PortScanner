@@ -8,6 +8,10 @@ import me.falconpenny.portscanner.data.VolatileStorage;
 import me.falconpenny.portscanner.threads.LoggingThread;
 import me.falconpenny.portscanner.threads.PollThread;
 
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Scanner;
 import java.util.Set;
@@ -16,10 +20,9 @@ import java.util.stream.Stream;
 
 public class Main {
     @Getter private static final Main main = new Main();
-    @Getter
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().serializeNulls().disableHtmlEscaping().create();
+    @Getter private final Gson gson = new GsonBuilder().setPrettyPrinting().serializeNulls().disableHtmlEscaping().create();
     @Getter private final VolatileStorage storage = new VolatileStorage();
-    @Getter private final Configuration config = new Configuration();
+    @Getter private Configuration config = new Configuration();
 
     private final LoggingThread loggingThread = new LoggingThread();
     private final Set<PollThread> threads = new HashSet<>();
@@ -27,6 +30,15 @@ public class Main {
     private void run() {
         loggingThread.start();
         Scanner scanner = new Scanner(System.in);
+        File config = new File("config.json");
+        if (config.exists()) {
+            try (FileReader reader = new FileReader(config)) {
+                Configuration configuration = gson.fromJson(reader, Configuration.class);
+                this.config = configuration;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
 
         int intSlot = 3;
         int current = 1;
@@ -53,9 +65,11 @@ public class Main {
             default:
                 throw new IllegalStateException("Input cannot be default!");
         }
-        Stream<PollThread> threadStream = IntStream.rangeClosed(0, config.getThreads()).mapToObj(i -> new PollThread());
+        Stream<PollThread> threadStream = IntStream.rangeClosed(0, this.config.getThreads()).mapToObj(i -> new PollThread());
         threadStream.forEach(threads::add);
         threadStream.forEach(Thread::start);
+
+        // TODO: Implement console
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             scanner.close();
@@ -66,6 +80,11 @@ public class Main {
                 }
             });
             loggingThread.setStop(true);
+            try (FileWriter writer = new FileWriter(config)) {
+                gson.toJson(this.config, writer);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }));
     }
 

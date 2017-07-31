@@ -3,6 +3,7 @@ package me.falconpenny.portscanner;
 import me.falconpenny.portscanner.data.LogType;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
@@ -44,5 +45,18 @@ public class Utilities {
         StringBuilder builder = new StringBuilder();
         IntStream.rangeClosed(0, length).forEach(i -> builder.append(placeholder));
         return text + builder.toString();
+    }
+
+    public static void clearTerminal() {
+        if (System.getProperty("os.name").contains("Windows")) {
+            try {
+                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
+                return;
+            } catch (InterruptedException | IOException ignored) {
+            }
+        }
+
+        System.out.print("\033[H\033[2J");
+        System.out.flush();
     }
 }
