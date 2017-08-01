@@ -22,6 +22,11 @@ public class PollThread extends Thread {
                 continue;
             }
             if (socket.isClosed()) continue;
+            scan.setAddress(socket.getInetAddress().getHostAddress());
+            try {
+                socket.close();
+            } catch (IOException e) {
+            }
             boolean isIp = scan.getDomain().equals(scan.getAddress());
             Utilities.log(true, "Port " + scan.getPort() + " at " + scan.getDomain() + (isIp ? "" : "(" + scan.getAddress() + ")") + ": " + scan.getPort());
         }

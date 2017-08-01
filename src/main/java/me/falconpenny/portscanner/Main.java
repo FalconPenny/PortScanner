@@ -5,11 +5,13 @@ import com.google.gson.GsonBuilder;
 import lombok.Getter;
 import me.falconpenny.portscanner.data.Configuration;
 import me.falconpenny.portscanner.data.LogType;
+import me.falconpenny.portscanner.data.Scan;
 import me.falconpenny.portscanner.data.VolatileStorage;
 import me.falconpenny.portscanner.threads.LoggingThread;
 import me.falconpenny.portscanner.threads.PollThread;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -60,28 +62,71 @@ public class Main {
         String filename = this.config.getServerFile().toLowerCase();
         File serverfile = new File(this.config.getServerFile());
         if (filename.endsWith(".json")) {
-            try(FileReader reader = new FileReader(serverfile)) {
+            try (FileReader reader = new FileReader(serverfile)) {
                 if (!reader.ready()) {
                     Utilities.log("No data in the server list!");
                     return;
                 }
-                int charAmount = 1;
-                char[] initialChars = new char[charAmount];
-                reader.read(initialChars, 0, charAmount);
-                if (initialChars[0] == '{') {
-                    // TODO: Parse map
-                } else if (initialChars[0] == '[') {
-                    // TODO: Parse list
+                char initialChar = (char) reader.read();
+                if (initialChar == '{') {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = gson.fromJson(reader, Map.class);
+                    for (Map.Entry<String, Object> entry : map.entrySet()) {
+                        if (entry.getValue() instanceof Integer) {
+                            storage.getPorts().offer(new Scan(entry.getKey(), (Integer) entry.getValue()));
+                        } else {
+                            throw new UnsupportedEncodingException("Json maps must be of \"ip\":port as String:int");
+                        }
+                    }
+                } else if (initialChar == '[') {
+                    @SuppressWarnings("unchecked")
+                    List<String> map = gson.fromJson(reader, List.class);
+                    for (String str : map) {
+                        int indexOfColon = str.indexOf(':');
+                        String ip = str.substring(0, indexOfColon == -1 ? str.length() : indexOfColon).replace(":", "");
+                        String port = indexOfColon == -1 ? "25565" : str.substring(indexOfColon).replaceAll("[^0-9]", "");
+                        storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
+                    }
                 } else {
                     throw new UnsupportedEncodingException("Json type not recognized!");
                 }
             } catch (IOException e) {
+                Utilities.log("Couldn't read from server list!");
                 e.printStackTrace();
+                return;
             }
         } else if (filename.endsWith(".csv")) {
-            // TODO: Parse CSV
+            try {
+                List<String> lines = Files.readAllLines(serverfile.toPath());
+                for (String line : lines) {
+                    boolean twocolumns = line.indexOf(',') != line.lastIndexOf(',');
+                    String parse, ip, port;
+                    if (twocolumns) {
+                        parse = line.substring(0, line.length() - 1).replace(',', ':') + ',';
+                    } else parse = line;
+                    parse = parse.substring(0, line.length() - 1);
+                    ip = parse.substring(0, line.indexOf(':')).replace(":", "");
+                    port = parse.substring(line.indexOf(':')).replaceAll("[^0-9]", "");
+                    storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
+                }
+            } catch (IOException e) {
+                Utilities.log("Couldn't read from server list!");
+                e.printStackTrace();
+                return;
+            }
         } else if (filename.endsWith(".txt")) {
-            // TODO: Parse upon \n
+            try {
+                List<String> lines = Files.readAllLines(serverfile.toPath());
+                for (String line : lines) {
+                    String ip = line.substring(0, line.indexOf(':')).replace(":", "");
+                    String port = line.substring(line.indexOf(':')).replaceAll("[^0-9]", "");
+                    storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
+                }
+            } catch (IOException e) {
+                Utilities.log("Couldn't read from server list!");
+                e.printStackTrace();
+                return;
+            }
         } else {
             throw new IllegalArgumentException("Illegal file type of server list! (" + filename.substring(filename.lastIndexOf('.')) + ')');
         }
@@ -175,7 +220,8 @@ public class Main {
                 System.out.println(" => ENTER NEW (" + config.getServerFile() + ')');
                 System.out.print(" -> ");
                 final Pattern pFile = Pattern.compile("[0-9a-z]+\\.(csv|json|txt)", Pattern.CASE_INSENSITIVE);
-                while (!scanner.hasNext(pFile)) {} // Wait until string matches.
+                while (!scanner.hasNext(pFile)) {
+                } // Wait until string matches.
                 config.setServerFile(scanner.next());
                 break;
             case 5:
