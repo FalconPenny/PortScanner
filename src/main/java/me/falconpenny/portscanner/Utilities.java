@@ -6,7 +6,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class Utilities {
@@ -38,15 +37,6 @@ public class Utilities {
         Arrays.stream(messages).forEach(Main.getMain().getStorage().getOutput()::offer);
     }
 
-    public static String length(String text, int length, char placeholder) {
-        if (text.length() >= length) {
-            return text;
-        }
-        StringBuilder builder = new StringBuilder();
-        IntStream.rangeClosed(0, length).forEach(i -> builder.append(placeholder));
-        return text + builder.toString();
-    }
-
     public static void clearTerminal() {
         if (System.getProperty("os.name").contains("Windows")) {
             try {
@@ -55,8 +45,9 @@ public class Utilities {
             } catch (InterruptedException | IOException ignored) {
             }
         }
-
-        System.out.print("\033[H\033[2J");
-        System.out.flush();
+        try {
+            new ProcessBuilder("bash", "-c", "\"clear\"").inheritIO().start().waitFor();
+        } catch (InterruptedException | IOException e) {
+        }
     }
 }
