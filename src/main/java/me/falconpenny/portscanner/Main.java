@@ -3,15 +3,15 @@ package me.falconpenny.portscanner;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import lombok.Getter;
-import me.falconpenny.portscanner.data.Configuration;
-import me.falconpenny.portscanner.data.LogType;
-import me.falconpenny.portscanner.data.Scan;
-import me.falconpenny.portscanner.data.VolatileStorage;
+import me.falconpenny.portscanner.data.*;
 import me.falconpenny.portscanner.threads.LoggingThread;
 import me.falconpenny.portscanner.threads.PollThread;
+import me.falconpenny.portscanner.threads.PortIterationThread;
 
-import java.io.*;
-import java.nio.file.Files;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -61,80 +61,12 @@ public class Main {
         }
         String filename = this.config.getServerFile().toLowerCase();
         File serverfile = new File(this.config.getServerFile());
-        if (filename.endsWith(".json")) {
-            try (FileReader reader = new FileReader(serverfile)) {
-                if (!reader.ready()) {
-                    Utilities.log("No data in the server list!");
-                    return;
-                }
-                char initialChar = (char) reader.read();
-                if (initialChar == '{') {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> map = gson.fromJson(reader, Map.class);
-                    for (Map.Entry<String, Object> entry : map.entrySet()) {
-                        if (entry.getValue() instanceof Integer) {
-                            storage.getPorts().offer(new Scan(entry.getKey(), (Integer) entry.getValue()));
-                        } else {
-                            throw new UnsupportedEncodingException("Json maps must be of \"ip\":port as String:int");
-                        }
-                    }
-                } else if (initialChar == '[') {
-                    @SuppressWarnings("unchecked")
-                    List<String> map = gson.fromJson(reader, List.class);
-                    for (String str : map) {
-                        int indexOfColon = str.indexOf(':');
-                        String ip = str.substring(0, indexOfColon == -1 ? str.length() : indexOfColon).replace(":", "");
-                        String port = indexOfColon == -1 ? "25565" : str.substring(indexOfColon).replaceAll("[^0-9]", "");
-                        storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
-                    }
-                } else {
-                    throw new UnsupportedEncodingException("Json type not recognized!");
-                }
-            } catch (IOException e) {
-                Utilities.log("Couldn't read from server list!");
-                e.printStackTrace();
-                return;
-            }
-        } else if (filename.endsWith(".csv")) {
-            try {
-                List<String> lines = Files.readAllLines(serverfile.toPath());
-                for (String line : lines) {
-                    boolean twocolumns = line.indexOf(',') != line.lastIndexOf(',');
-                    String parse, ip, port;
-                    if (twocolumns) {
-                        parse = line.substring(0, line.length() - 1).replace(',', ':') + ',';
-                    } else parse = line;
-                    parse = parse.substring(0, line.length() - 1);
-                    ip = parse.substring(0, line.indexOf(':')).replace(":", "");
-                    port = parse.substring(line.indexOf(':')).replaceAll("[^0-9]", "");
-                    storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
-                }
-            } catch (IOException e) {
-                Utilities.log("Couldn't read from server list!");
-                e.printStackTrace();
-                return;
-            }
-        } else if (filename.endsWith(".txt")) {
-            try {
-                List<String> lines = Files.readAllLines(serverfile.toPath());
-                for (String line : lines) {
-                    String ip = line.substring(0, line.indexOf(':')).replace(":", "");
-                    String port = line.substring(line.indexOf(':')).replaceAll("[^0-9]", "");
-                    storage.getPorts().offer(new Scan(ip, Integer.valueOf(port)));
-                }
-            } catch (IOException e) {
-                Utilities.log("Couldn't read from server list!");
-                e.printStackTrace();
-                return;
-            }
-        } else {
-            throw new IllegalArgumentException("Illegal file type of server list! (" + filename.substring(filename.lastIndexOf('.')) + ')');
-        }
+
+        new PortIterationThread().start();
         Utilities.clearTerminal();
         Stream<PollThread> threadStream = IntStream.rangeClosed(0, this.config.getThreads()).mapToObj(i -> new PollThread());
         threadStream.forEach(threads::add);
         threadStream.forEach(Thread::start);
-
 
         // TODO: Implement console
     }
@@ -172,6 +104,7 @@ public class Main {
         System.out.println(" => [" + current++ + "] TIMEOUT (" + config.getTimeout() + "ms)");
         System.out.println(" => [" + current++ + "] LOGGING (" + config.getWritePorts().name() + ')');
         System.out.println(" => [" + current++ + "] SERVER LIST (" + config.getServerFile() + ')');
+        System.out.println(" => [" + current++ + "] PORT RANGE");
         System.out.println(" => [" + current++ + "] RETURN");
         System.out.print(" -> ");
         int in;
@@ -215,7 +148,7 @@ public class Main {
                 config.setWritePorts(types.get(--in));
                 break;
             case 4:
-                // TODO: LIST
+                // SERVER LIST
                 Utilities.clearTerminal();
                 System.out.println(" => ENTER NEW (" + config.getServerFile() + ')');
                 System.out.print(" -> ");
@@ -224,13 +157,132 @@ public class Main {
                 } // Wait until string matches.
                 config.setServerFile(scanner.next());
                 break;
-            case 5:
+            case 7:
+                // PORT RANGE
+                portMenu(scanner);
+                break;
+            case 6:
+                // RETURN
                 mainMenu(scanner);
                 return;
             default:
                 throw new IllegalStateException("Input cannot be default!");
         }
         configMenu(scanner);
+    }
+
+    private void portMenu(Scanner scanner) {
+        Utilities.clearTerminal();
+        int current = 1;
+        System.out.println(" => [" + current++ + "] PORT LIST (" + config.getPorts().size() + " RANGES)");
+        System.out.println(" => [" + current++ + "] ADD PORT/- RANGE");
+        System.out.println(" => [" + current++ + "] RETURN");
+        int in;
+        while (!scanner.hasNextInt() || ((in = scanner.nextInt()) > --current || in < 1)) {
+            // Wait for proper int
+        }
+        switch (in) {
+            case 1:
+                // PORT LIST
+                portListMenu(scanner);
+                break;
+            case 2:
+                portListMenuAdd(scanner);
+                break;
+            case 3:
+                // RETURN TO CONFIG
+                return;
+            default:
+                throw new IllegalStateException("Input cannot be default!");
+        }
+        portMenu(scanner);
+    }
+
+    private void portListMenuAdd(Scanner scanner) {
+        Utilities.clearTerminal();
+        System.out.println(" => [1-65535] ENTER LOWER BOUND (INCLUSIVE)");
+        System.out.print(" -> ");
+        int in;
+        while (!scanner.hasNextInt() || ((in = scanner.nextInt()) > 65535)) {
+            // Wait for proper int
+        }
+        if (in <= 0) {
+            return;
+        }
+        int lower = in;
+        Utilities.clearTerminal();
+        System.out.println(" => LOWER BOUND: " + lower);
+        System.out.println(" => [1-65535] ENTER UPPER BOUND OR 0 (INCLUSIVE)");
+        System.out.println(" => 0 = SINGLE PORT");
+        while (!scanner.hasNextInt() || ((in = scanner.nextInt()) > 65535)) {
+            // Wait for proper int
+        }
+        int upper = in == 0 ? lower : in;
+        IPort add;
+        if (upper == lower) {
+            add = new SinglePort(lower);
+        } else {
+            add = new PortRange(Math.min(lower, upper), Math.max(lower, upper));
+        }
+        config.getPorts().add(add);
+        // RETURN TO PORT MENU
+    }
+
+    private void portListMenu(Scanner scanner) {
+        Utilities.clearTerminal();
+        Map<Integer, IPort> portMap = new HashMap<>();
+        int current = 1;
+        System.out.println(" => TOTAL: " + config.getPorts().size() + " RANGES");
+        System.out.println(" => [0] RETURN");
+        for (IPort port : config.getPorts()) {
+            portMap.put(current, port);
+            if (port instanceof SinglePort) {
+                System.out.println(" => [" + current++ + "] " + ((SinglePort) port).getPort());
+                continue;
+            }
+            System.out.println(" => [" + current++ + "] " + ((PortRange) port).getLowerBound() + " - " + ((PortRange) port).getUpperBound());
+        }
+        int in;
+        while (!scanner.hasNextInt() || ((in = scanner.nextInt()) > --current)) {
+            // Wait for proper int
+        }
+        if (in <= 0) {
+            // RETURN
+            return;
+        }
+        Iterator<Map.Entry<Integer, IPort>> iterator = portMap.entrySet().iterator();
+        for (int i = 1; i < in && iterator.hasNext(); i++) {
+            iterator.next();
+        }
+        portListMenuHandle(scanner, iterator);
+        portListMenu(scanner);
+    }
+
+    private void portListMenuHandle(Scanner scanner, Iterator<Map.Entry<Integer, IPort>> portIterator) {
+        if (!portIterator.hasNext()) return;
+        int current = 1;
+        Map.Entry<Integer, IPort> entry = portIterator.next();
+        System.out.print(" => PORT " + (entry.getValue() instanceof PortRange ? "RANGE " : "") + ": ");
+        if (entry.getValue() instanceof PortRange) {
+            System.out.println(((PortRange) entry.getValue()).getLowerBound() + " - " + ((PortRange) entry.getValue()).getUpperBound());
+        } else {
+            System.out.println(((SinglePort) entry.getValue()).getPort());
+        }
+        System.out.println(" => [" + current++ + "] RETURN");
+        System.out.println(" => [" + current++ + "] DELETE");
+        int in;
+        while (!scanner.hasNextInt() || ((in = scanner.nextInt()) > --current)) {
+            // Wait for proper int
+        }
+        switch (in) {
+            case 1:
+                return;
+            case 2:
+                portIterator.remove();
+                return;
+            default:
+                throw new IllegalStateException("Input cannot be default!");
+        }
     }
 
     public static void main(String[] args) {
